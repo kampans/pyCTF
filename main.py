@@ -14,6 +14,7 @@ from pygame.locals import *
 from pygame import mixer
 import asyncio
 # ONBOARDING SCREEN
+
 def display_keybinds():
     keybinds_text = [
         "Keybinds:",
