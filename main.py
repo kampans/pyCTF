@@ -1,6 +1,6 @@
 # I created this game in 2024; and a part of a python DCU Project
 # for CTYI EUE (Early Univeristy Entry)
-# I tried to get it to play in the browser; just see the other files in the directory; 
+# I tried to get it to play in the browser; using pygbag 0.9.3, turns out https://pygame-web.github.io/cdn/0.9.3/browserfs.min.js was dead a long time ago... 
 # I couldn't get it to work so if you can LMK! Might make more updates or something related to the game though...
 
 import os
