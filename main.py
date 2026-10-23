@@ -15,7 +15,7 @@ from pygame import mixer
 import asyncio
 # ONBOARDING SCREEN
 
-def display_keybinds():
+async def display_keybinds():
     keybinds_text = [
         "Keybinds:",
         "",
@@ -63,6 +63,7 @@ def display_keybinds():
                 waiting = False
             elif event.type == pygame.QUIT:
                 waiting = False
+        await asyncio.sleep(0)
                 
 pygame.init()
 
@@ -73,6 +74,7 @@ FRICT = -0.12
 
 dt = 0
 match_counter = 0
+freeze_until = 0 # replace pygame.time.wait()
 vec = pygame.math.Vector2
 
 player1_score = 0
@@ -80,7 +82,7 @@ player2_score = 0
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Capture the flag")
-bg_img = pygame.image.load(r'elements\Untitled.png').convert()
+bg_img = pygame.image.load(r'elements/Untitled.png').convert()
 clock = pygame.time.Clock()
 running = True
 
@@ -95,12 +97,14 @@ font = pygame.font.Font("freesansbold.ttf", 25)
 player_header = pygame.font.Font("freesansbold.ttf", 15)
 score_text = pygame.font.Font("freesansbold.ttf", 40)
 
-mixer.music.load(r'elements\gamemusic.ogg')
+mixer.music.load(r'elements/gamemusic.ogg')
 mixer.music.play(20)
 mixer.music.set_volume(0.2)
 s = "sound"
-jump = pygame.mixer.Sound(os.path.join(r'elements\jump.ogg'))
-woosh = pygame.mixer.Sound(os.path.join(r'elements\woosh.ogg'))
+jump = pygame.mixer.Sound(os.path.join(r'elements/jump.ogg'))
+woosh = pygame.mixer.Sound(os.path.join(r'elements/woosh.ogg'))
+
+
 
 class MakePlayers(pygame.sprite.Sprite):
 
@@ -263,6 +267,7 @@ def GameRule(attacker, defender, attacker_hitbox, defender_hitbox, defender_flag
     unKill(flags, defender_flag)
         
     # print("Middle Y position:", middle_y_pos) 
+    global freeze_until
     
     if doCollisions(attacker_hitbox, defender_flag_hitbox):
         text1 = score_text.render("ATTACKER SCORE", True, "white", )
@@ -270,7 +275,7 @@ def GameRule(attacker, defender, attacker_hitbox, defender_hitbox, defender_flag
         pygame.display.flip()
         attacker_score += 10
         returnPlayers()
-        pygame.time.wait(750)
+        freeze_until = pygame.time.get_ticks() + 750
              
     if doCollisions(attacker_hitbox, defender_hitbox):
         text2 = score_text.render("DEFENDER SCORE", True, "white", )
@@ -278,7 +283,7 @@ def GameRule(attacker, defender, attacker_hitbox, defender_hitbox, defender_flag
         pygame.display.flip()
         defender_score += 10
         returnPlayers()
-        pygame.time.wait(500)
+        freeze_until = pygame.time.get_ticks() + 500
 
     return attacker_score, defender_score
         
@@ -310,29 +315,33 @@ Player2 = MakePlayers(all_sprites, players, 32, 32, (77, 109, 242, 255), 1400, 4
 Player2_hitbox = MakeCollisionBox(45, 45)
 
 flags = pygame.sprite.Group()
-Flag1 = MakeFlags(flags, 32, 32, WIDTH - 1550, 440, r"elements\redflag.png")
+Flag1 = MakeFlags(flags, 32, 32, WIDTH - 1550, 440, r"elements/redflag.png")
 Flag1_hitbox = MakeCollisionBox(45, 45)
-Flag2 = MakeFlags(flags, 32, 32, WIDTH - 50, 440, r"elements\blueflag.png")
+Flag2 = MakeFlags(flags, 32, 32, WIDTH - 50, 440, r"elements/blueflag.png")
 Flag2_hitbox = MakeCollisionBox(45, 45)
 
 Flag1.kill()
 Flag2.kill()
 
-display_keybinds()
-
 async def main():
-    global player1_score, player2_score, running
+    global player1_score, player2_score, running, freeze_until
+
+    await display_keybinds()
 
     while running:
+
+        if pygame.time.get_ticks() < freeze_until:
+            await asyncio.sleep(0.016)
+            continue
+
         keys = pygame.key.get_pressed()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-                sys.exit()
+
             elif keys[pygame.K_ESCAPE]:
                 running = False
-                sys.exit()
 
         screen.fill((25, 51, 7, 1))
         screen.blit(bg_img, (0, 0))
@@ -363,7 +372,7 @@ async def main():
             pygame.display.flip()
             player2_score += 5
             returnPlayers()
-            pygame.time.wait(500)
+            freeze_until = pygame.time.get_ticks() + 500
 
         if pygame.sprite.spritecollide(Player2, void, False):
             text4 = score_text.render("PLAYER 2 DEAD", True, "white")
@@ -371,7 +380,7 @@ async def main():
             pygame.display.flip()
             player1_score += 5
             returnPlayers()
-            pygame.time.wait(500)
+            freeze_until = pygame.time.get_ticks() + 500
 
 
 
@@ -396,8 +405,8 @@ async def main():
         dt = clock.tick(60) / 1000
         await asyncio.sleep(0)
 
-asyncio.run(main())
-quit()
+if __name__ == "__main__":
+    asyncio.run(main())
 
 
 
