@@ -1,3 +1,5 @@
+▶️ **[Play in your browser](https://kampans.github.io/pyCTF/)**
+
 # 🏴 pyCTF
 
 A local multiplayer **Capture The Flag** game built with **Python** and **Pygame** as part of a DCU / CTYI project.
@@ -84,6 +86,8 @@ Install dependencies:
 
 ```bash
 pip install pygame
+If it doesn't work with pygame, you can use pygame-ce..
+    pip install pygame-ce
 ```
 
 Run the game:
@@ -116,7 +120,21 @@ pyCTF/
 
 ## 🌐 Browser Version
 
-I experimented with exporting the game to run in a web browser using Pygame web tooling. The current browser build is not fully functional due to dependency/runtime issues, so the recommended way to play the game is the desktop version on a 1920x1080 resolution // I might update it if im bothered.
+The game runs in the browser, built with [pygodide](https://pypi.org/project/pygodide/) (Pyodide + pygame-ce). The earlier pygbag attempt stopped working, so this replaced it.
+
+Notes:
+- Click the game window first, then press a key to start, since browsers only allow audio after interaction.
+- Performance can be slightly lower than the desktop version.
+- Best played on a desktop browser (Chrome or Edge) at 1920x1080.
+
+### Building the web version
+
+```bash
+pip install pygodide pygame-ce
+pygodide build . --dep pygame-ce
+```
+
+The output is in `build/`. Copy its contents into `docs/` (with an empty `.nojekyll` file) and GitHub Pages serves it from there.
 
 ---
 
@@ -150,9 +168,12 @@ Potential future updates include:
 - Improved graphics and animations
 - Match timer and win conditions
 - Online multiplayer support
-- Better UI and menus
-- Improved browser compatibility
+- Better UI and menu
 - Leaderboards and statistics
+
+## 📝 Updates
+
+- **Oct 2026:** Added browser version via pygodide, fixed blocking waits and frame pacing, and added a non-blocking pause when players score.
 
 ---
 
