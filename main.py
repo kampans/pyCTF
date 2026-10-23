@@ -84,7 +84,23 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Capture the flag")
 bg_img = pygame.image.load(r'elements/Untitled.png').convert()
 clock = pygame.time.Clock()
+
 running = True
+
+IN_BROWSER = sys.platform == "emscripten"
+
+if IN_BROWSER:
+    import js
+    from pyodide.ffi import create_once_callable
+
+async def next_frame():
+    if IN_BROWSER:
+        fut = asyncio.get_running_loop().create_future()
+        js.requestAnimationFrame(create_once_callable(lambda t: fut.set_result(None)))
+        await fut
+    else:
+        await asyncio.sleep(0)
+
 
 # Chooses who goes first
 def game_chooser():
@@ -121,7 +137,7 @@ class MakePlayers(pygame.sprite.Sprite):
         self.wooshing = False
         group1.add(self)
         group2.add(self)
-        print(start_pos)
+        # print(start_pos)
 
     def move(self, x, y, z, v, c, b):
         self.acc = vec(0, 0.5)
@@ -216,7 +232,7 @@ class MakeFlags(pygame.sprite.Sprite):
         self.surf = pygame.Surface((size_x, size_y), pygame.SRCALPHA)
         self.image = pygame.image.load(path).convert_alpha()
         self.rect = self.image.get_rect()
-        print("Image dimensions:", self.image.get_size())
+        # print("Image dimensions:", self.image.get_size())
         self.pos = vec((x, y))
         self.vel = vec(0, 0)
         self.acc = vec(0, 0)
@@ -343,7 +359,6 @@ async def main():
             elif keys[pygame.K_ESCAPE]:
                 running = False
 
-        screen.fill((25, 51, 7, 1))
         screen.blit(bg_img, (0, 0))
 
         Player1.update()
@@ -401,9 +416,12 @@ async def main():
         # for entity in platforms:
         #     screen.blit(entity.surf, entity.rect)
 
+        fps_surf = font.render(f"{clock.get_fps():.0f} fps", True, "white")
+        screen.blit(fps_surf, (WIDTH // 2 - 30, 10))
+
         pygame.display.flip()
         dt = clock.tick(60) / 1000
-        await asyncio.sleep(0)
+        await next_frame()
 
 if __name__ == "__main__":
     asyncio.run(main())
