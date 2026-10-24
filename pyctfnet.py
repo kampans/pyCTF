@@ -1,13 +1,6 @@
 # pyctfnet.py - online multiplayer plumbing for pyCTF (browser only)
-#
-# How it works:
-#   * PeerJS (WebRTC) is loaded from a CDN the first time you host/join.
-#   * The host registers the peer id "pyctf-<CODE>"; the guest connects to it.
-#     PeerJS's free public server only introduces the two browsers, after that
-#     the game data flows directly between them.
-#   * All the JS lives in the GLUE string below and is evaluated once. Python
-#     only ever calls simple methods and polls for incoming messages, so there
-#     are no callbacks/proxies to manage.
+# PeerJS (WebRTC) bridge: lobby codes + message passing. Python only calls simple
+# methods and polls for messages; all JS lives in GLUE and is evaluated once.
 
 import json
 import sys
@@ -20,6 +13,21 @@ if IN_BROWSER:
 ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 CODE_LEN = 5
 
+ICE_SERVERS = [
+    {"urls": ["stun:stun.l.google.com:19302",
+              "stun:stun1.l.google.com:19302",
+              "stun:stun.cloudflare.com:3478"]},
+    {"urls": ["turn:eu-0.turn.peerjs.com:3478", "turn:us-0.turn.peerjs.com:3478"],
+     "username": "peerjs", "credential": "peerjsp"},
+]
+EXTRA_TURN = [{
+    "urls": ["turn:relay1.expressturn.com:3478?transport=udp",
+             "turn:relay1.expressturn.com:3478?transport=tcp",
+             "turns:relay1.expressturn.com:443?transport=tcp"],
+    "username": "000000002108216568", # this is a free expressturn account; if you're stealing it you probably need it more than me...
+    "credential": "A1MDT6kfBHj7fYdPxVtMuf+Qhdc=",
+}]
+
 GLUE = r"""
 (() => {
   if (globalThis.pyctfNet) return;
@@ -27,6 +35,8 @@ GLUE = r"""
   const CODE_LEN = __CODE_LEN__;
   const PEER_SRC = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
   const PREFIX = "pyctf-";
+  const ICE = __ICE__;
+  const PEER_OPTS = { config: { iceServers: ICE } };
 
   const net = {
     status: "idle",   // idle | loading | waiting | connecting | connected | closed | error
@@ -37,6 +47,7 @@ GLUE = r"""
     conn: null,
     timer: null,
     taken: false,
+    ice: "",         // last ICE connection state, for diagnostics
     gen: 0,           // bumped on every start/close so stale callbacks are ignored
 
     close() {
@@ -45,7 +56,7 @@ GLUE = r"""
       try { if (this.conn) this.conn.close(); } catch (e) {}
       try { if (this.peer) this.peer.destroy(); } catch (e) {}
       this.conn = null; this.peer = null; this.inbox = [];
-      this.code = ""; this.error = ""; this.taken = false; this.status = "idle";
+      this.code = ""; this.error = ""; this.taken = false; this.ice = ""; this.status = "idle";
     },
 
     fail(msg) {
@@ -65,7 +76,23 @@ GLUE = r"""
       });
     },
 
-    attach(conn, g) {
+    watchIce(conn, g, isGuest) {
+      try {
+        const pc = conn.peerConnection;
+        if (!pc) return;
+        pc.addEventListener("iceconnectionstatechange", () => {
+          if (g !== this.gen) return;
+          this.ice = pc.iceConnectionState;
+          if (this.ice === "failed" && this.status !== "connected") {
+            if (isGuest) this.fail("Could not set up a direct connection (ICE failed). A strict network may be blocking it.");
+            else this.taken = false;   // let the friend try again
+          }
+        });
+      } catch (e) {}
+    },
+
+    attach(conn, g, isGuest) {
+      this.watchIce(conn, g, isGuest);
       conn.on("open", () => {
         if (g !== this.gen) return;
         this.conn = conn;
@@ -87,7 +114,7 @@ GLUE = r"""
         const tryOpen = (attempt) => {
           let code = "";
           for (let i = 0; i < CODE_LEN; i++) code += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
-          const peer = new Peer(PREFIX + code);
+          const peer = new Peer(PREFIX + code, PEER_OPTS);
           this.peer = peer;
           peer.on("open", () => {
             if (g !== this.gen) return;
@@ -98,7 +125,7 @@ GLUE = r"""
             if (g !== this.gen) return;
             if (this.taken) { conn.on("open", () => conn.close()); return; }  // lobby is 2 players only
             this.taken = true;
-            this.attach(conn, g);
+            this.attach(conn, g, false);
           });
           peer.on("error", (e) => {
             if (g !== this.gen || this.status === "connected") return;
@@ -116,16 +143,16 @@ GLUE = r"""
       this.status = "loading";
       this.timer = setTimeout(() => {
         if (g === this.gen && this.status !== "connected")
-          this.fail("Timed out. Check the code, or your network may block direct connections.");
+          this.fail("Timed out (ICE: " + (this.ice || "none") + "). Check the code, or your network may block direct connections.");
       }, 20000);
       this.loadLib().then(() => {
         if (g !== this.gen) return;
-        const peer = new Peer();
+        const peer = new Peer(undefined, PEER_OPTS);
         this.peer = peer;
         this.status = "connecting";
         peer.on("open", () => {
           if (g !== this.gen) return;
-          this.attach(peer.connect(PREFIX + code, { reliable: true }), g);
+          this.attach(peer.connect(PREFIX + code, { reliable: true }), g, true);
         });
         peer.on("error", (e) => {
           if (g !== this.gen || this.status === "connected") return;
@@ -155,7 +182,9 @@ class Net:
 
     def _get(self):
         if self._api is None:
-            js.eval(GLUE.replace("__ALPHABET__", ALPHABET).replace("__CODE_LEN__", str(CODE_LEN)))
+            js.eval(GLUE.replace("__ALPHABET__", ALPHABET)
+                    .replace("__CODE_LEN__", str(CODE_LEN))
+                    .replace("__ICE__", json.dumps(ICE_SERVERS + EXTRA_TURN)))
             self._api = js.pyctfNet
         return self._api
 
