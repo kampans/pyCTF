@@ -13,6 +13,14 @@ import pygame
 from pygame.locals import *
 from pygame import mixer
 import asyncio
+from collections import defaultdict
+import pyctfnet as netmod
+
+# ONLINE STATE: "local" (same keyboard), "host" (runs the game) or "guest" (sends inputs, draws)
+net = netmod.Net()
+mode = "local"
+remote_keys = defaultdict(bool)  # the guest's held keys, shaped like pygame.key.get_pressed()
+
 # ONBOARDING SCREEN
 
 async def display_keybinds():
@@ -135,13 +143,15 @@ class MakePlayers(pygame.sprite.Sprite):
         self.acc = vec(0, 0)
         self.jumping = False
         self.wooshing = False
+        self.name = "Player"
         group1.add(self)
         group2.add(self)
         # print(start_pos)
 
-    def move(self, x, y, z, v, c, b):
+    def move(self, x, y, z, v, c, b, pressed=None):
         self.acc = vec(0, 0.5)
-        keys = pygame.key.get_pressed()
+        # pressed lets online play feed in the remote player's keys
+        keys = pressed if pressed is not None else pygame.key.get_pressed()
         if keys[x]:
             self.acc.x = -ACC
         if keys[y]:
@@ -195,7 +205,7 @@ class MakePlayers(pygame.sprite.Sprite):
 
     def drawChar(self, DrawWithDisplay):
         if DrawWithDisplay:
-            DisplayNameText = player_header.render(str("Player"), 1, "white")
+            DisplayNameText = player_header.render(str(self.name), 1, "white")
             text_rect = DisplayNameText.get_rect(midbottom=self.rect.midtop)
             screen.blit(DisplayNameText, text_rect)
 
@@ -283,23 +293,16 @@ def GameRule(attacker, defender, attacker_hitbox, defender_hitbox, defender_flag
     unKill(flags, defender_flag)
         
     # print("Middle Y position:", middle_y_pos) 
-    global freeze_until
-    
+
     if doCollisions(attacker_hitbox, defender_flag_hitbox):
-        text1 = score_text.render("ATTACKER SCORE", True, "white", )
-        screen.blit(text1, (WIDTH / 2 - 175, 60))
-        pygame.display.flip()
         attacker_score += 10
         returnPlayers()
-        freeze_until = pygame.time.get_ticks() + 750
-             
+        announce("ATTACKER SCORE", 750)
+
     if doCollisions(attacker_hitbox, defender_hitbox):
-        text2 = score_text.render("DEFENDER SCORE", True, "white", )
-        screen.blit(text2, (WIDTH / 2 - 175, 60))
-        pygame.display.flip()
         defender_score += 10
         returnPlayers()
-        freeze_until = pygame.time.get_ticks() + 500
+        announce("DEFENDER SCORE", 500)
 
     return attacker_score, defender_score
         
@@ -339,12 +342,259 @@ Flag2_hitbox = MakeCollisionBox(45, 45)
 Flag1.kill()
 Flag2.kill()
 
-async def main():
-    global player1_score, player2_score, running, freeze_until
+# ---------------------------------------------------------------------------
+# ONLINE PLAY: menu, lobby, host/guest helpers
+# ---------------------------------------------------------------------------
 
-    await display_keybinds()
+_panel_font = None
+
+def draw_panel(lines):
+    """White text panel on the green background (same look as the keybinds screen)."""
+    global _panel_font
+    if _panel_font is None:
+        _panel_font = pygame.font.Font(None, 36)
+    surfs = [_panel_font.render(line, True, (0, 0, 0)) for line in lines]
+    width = max(s.get_width() for s in surfs)
+    height = sum(s.get_height() for s in surfs)
+    panel = pygame.Surface((width + 40, height + 40))
+    panel.fill((255, 255, 255))
+    y = 20
+    for s in surfs:
+        panel.blit(s, (20, y))
+        y += s.get_height()
+    screen.fill((25, 51, 7))
+    screen.blit(panel, panel.get_rect(center=screen.get_rect().center))
+    pygame.display.flip()
+
+async def menu_tick():
+    if IN_BROWSER:
+        await next_frame()
+    else:
+        await asyncio.sleep(0.016)
+
+async def choose_mode():
+    """Returns "local", "host", "join", or None if the window was closed."""
+    msg = ""
+    while True:
+        lines = ["pyCTF - Capture the flag", "",
+                 "1 - Local 2-player (same keyboard)",
+                 "2 - Create an online lobby",
+                 "3 - Join an online lobby with a code"]
+        if msg:
+            lines += ["", msg]
+        draw_panel(lines)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return None
+            if event.type == pygame.KEYDOWN:
+                if event.key in (K_1, K_KP1):
+                    return "local"
+                if event.key in (K_2, K_KP2, K_3, K_KP3):
+                    if net.available:
+                        return "host" if event.key in (K_2, K_KP2) else "join"
+                    msg = "Online play only works in the browser version."
+        await menu_tick()
+
+async def wait_for_key():
+    while True:
+        for event in pygame.event.get():
+            if event.type in (pygame.QUIT, pygame.KEYDOWN):
+                return
+        await menu_tick()
+
+async def online_lobby(choice):
+    """Host: show a code and wait. Join: type a code and connect. True when connected."""
+    net.close()
+    if choice == "host":
+        net.host()
+    else:
+        code = ""
+        submitted = False
+        while not submitted:
+            draw_panel(["Join a lobby", "",
+                        "Type the code your friend gave you:", "",
+                        "      " + (code or "_"), "",
+                        "Enter - join      Esc - back"])
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return False
+                if event.type == pygame.KEYDOWN:
+                    if event.key == K_ESCAPE:
+                        return False
+                    elif event.key == K_BACKSPACE:
+                        code = code[:-1]
+                    elif event.key in (K_RETURN, K_KP_ENTER):
+                        if len(code) == netmod.CODE_LEN:
+                            submitted = True
+                    elif event.unicode and event.unicode.upper() in netmod.ALPHABET and len(code) < netmod.CODE_LEN:
+                        code += event.unicode.upper()
+            await menu_tick()
+        net.join(code)
+
+    # Waiting for the connection to come up
+    while net.status != "connected":
+        st = net.status
+        if st == "error":
+            draw_panel(["Could not connect", "", net.error, "", "Press any key to go back"])
+            net.close()
+            await wait_for_key()
+            return False
+        if choice == "host" and st == "waiting":
+            draw_panel(["Your lobby code:", "", "      " + net.code, "",
+                        "Give this code to your friend.",
+                        "Waiting for them to join...", "", "Esc - cancel"])
+        else:
+            draw_panel(["Connecting...", "", "Esc - cancel"])
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == K_ESCAPE):
+                net.close()
+                return False
+        await menu_tick()
+
+    # Connected: show controls for a moment so both sides start together
+    end = pygame.time.get_ticks() + 3000
+    while pygame.time.get_ticks() < end:
+        secs = (end - pygame.time.get_ticks()) // 1000 + 1
+        who = "red (Player 1)" if choice == "host" else "blue (Player 2)"
+        draw_panel(["Connected! You are " + who, "",
+                    "Move: A / D        Jump: W        Drop through platform: S",
+                    "Dash left: Q        Dash right: E", "",
+                    "Starting in " + str(secs) + "..."])
+        pygame.event.pump()
+        if net.status != "connected":
+            return False
+        await menu_tick()
+    return True
+
+async def connection_lost():
+    draw_panel(["Connection lost", "", "Your friend left or the network dropped.",
+                "Refresh the page to play again."])
+    net.close()
+
+def announce(text, ms):
+    """Show a banner and freeze the round briefly. Tells the guest too when hosting."""
+    global freeze_until
+    surf = score_text.render(text, True, "white")
+    screen.blit(surf, (WIDTH / 2 - 175, 60))
+    pygame.display.flip()
+    freeze_until = pygame.time.get_ticks() + ms
+    if mode == "host":
+        net.send({"t": "ev", "text": text, "ms": ms})
+
+def send_state():
+    """Host -> guest: everything the guest needs to draw one frame."""
+    net.send({
+        "t": "s",
+        "p": [round(Player1.pos.x, 1), round(Player1.pos.y, 1),
+              round(Player2.pos.x, 1), round(Player2.pos.y, 1)],
+        "f": [round(Flag1.pos.x, 1), round(Flag1.pos.y, 1),
+              round(Flag2.pos.x, 1), round(Flag2.pos.y, 1)],
+        "sc": [player1_score, player2_score],
+        "a": result,
+    })
+
+def handle_host_net():
+    """Host: read the guest's held keys. Order matches Player2.move(J, L, I, K, U, O)."""
+    for msg in net.poll():
+        if msg.get("t") == "in":
+            k = msg["k"]
+            for key, down in zip((K_j, K_l, K_i, K_k, K_u, K_o), k):
+                remote_keys[key] = bool(down)
+
+async def run_guest():
+    """Guest: send our keys to the host, draw whatever state it sends back."""
+    global player1_score, player2_score, running
+    Player1.name, Player2.name = "Friend", "You"
+    state = None
+    banner_text, banner_until = "", 0
+    last_sent, last_sent_at = None, 0
+    # Same order as the host expects: left, right, jump, fall, dash(Q), dash(E)
+    my_keys = (K_a, K_d, K_w, K_s, K_q, K_e)
 
     while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_ESCAPE]:
+            running = False
+
+        for msg in net.poll():
+            t = msg.get("t")
+            if t == "s":
+                state = msg
+            elif t == "ev":
+                banner_text = msg["text"]
+                banner_until = pygame.time.get_ticks() + msg["ms"]
+
+        if net.status != "connected":
+            await connection_lost()
+            return
+
+        now = pygame.time.get_ticks()
+        pressed = [1 if keys[k] else 0 for k in my_keys]
+        if pressed != last_sent or now - last_sent_at > 100:
+            net.send({"t": "in", "k": pressed})
+            last_sent, last_sent_at = pressed, now
+
+        screen.blit(bg_img, (0, 0))
+        if state is not None:
+            p, f = state["p"], state["f"]
+            Player1.pos = vec(p[0], p[1])
+            Player2.pos = vec(p[2], p[3])
+            Flag1.pos = vec(f[0], f[1])
+            Flag2.pos = vec(f[2], f[3])
+            for sprite in (Player1, Player2, Flag1, Flag2):
+                sprite.rect.midbottom = sprite.pos
+                sprite.drawChar(True)
+            flags.empty()
+            flags.add(Flag2 if state["a"] == 1 else Flag1)
+            player1_score, player2_score = state["sc"]
+
+            for entity in all_sprites:
+                screen.blit(entity.surf, entity.rect)
+            update_Scores()
+            for entity in flags:
+                screen.blit(entity.surf, entity.rect)
+
+        if now < banner_until:
+            screen.blit(score_text.render(banner_text, True, "white"), (WIDTH / 2 - 175, 60))
+
+        fps_surf = font.render(f"{clock.get_fps():.0f} fps", True, "white")
+        screen.blit(fps_surf, (WIDTH // 2 - 30, 10))
+        pygame.display.flip()
+        clock.tick(60)
+        await next_frame()
+
+async def main():
+    global player1_score, player2_score, running, freeze_until, mode
+
+    # Menu: local keeps the original behaviour, online adds host/guest
+    while True:
+        choice = await choose_mode()
+        if choice is None:
+            return
+        if choice == "local":
+            mode = "local"
+            await display_keybinds()
+            break
+        if await online_lobby(choice):
+            mode = "host" if choice == "host" else "guest"
+            break
+
+    if mode == "guest":
+        await run_guest()
+        return
+    if mode == "host":
+        Player1.name, Player2.name = "You", "Friend"
+
+    while running:
+
+        if mode == "host":
+            if net.status != "connected":
+                await connection_lost()
+                break
+            handle_host_net()
 
         if pygame.time.get_ticks() < freeze_until:
             await asyncio.sleep(0.016)
@@ -367,7 +617,10 @@ async def main():
         Player1_hitbox.draw_hitbox(Player1, screen, "green", 2, 3)
 
         Player2.update()
-        Player2.move(K_j, K_l, K_i, K_k, K_u, K_o)
+        if mode == "host":
+            Player2.move(K_j, K_l, K_i, K_k, K_u, K_o, remote_keys)
+        else:
+            Player2.move(K_j, K_l, K_i, K_k, K_u, K_o)
         Player2.drawChar(True)
         Player2_hitbox.draw_hitbox(Player2, screen, "red", 2, 3)
 
@@ -382,20 +635,14 @@ async def main():
         Flag2_hitbox.draw_hitbox(Flag2, screen, "red", 2, 3)
 
         if pygame.sprite.spritecollide(Player1, void, False):
-            text3 = score_text.render("PLAYER 1 DEAD", True, "white", )
-            screen.blit(text3, (WIDTH / 2 - 175, 60))
-            pygame.display.flip()
             player2_score += 5
             returnPlayers()
-            freeze_until = pygame.time.get_ticks() + 500
+            announce("PLAYER 1 DEAD", 500)
 
         if pygame.sprite.spritecollide(Player2, void, False):
-            text4 = score_text.render("PLAYER 2 DEAD", True, "white")
-            screen.blit(text4, (WIDTH / 2 - 175, 60))
-            pygame.display.flip()
             player1_score += 5
             returnPlayers()
-            freeze_until = pygame.time.get_ticks() + 500
+            announce("PLAYER 2 DEAD", 500)
 
 
 
@@ -420,11 +667,10 @@ async def main():
         screen.blit(fps_surf, (WIDTH // 2 - 30, 10))
 
         pygame.display.flip()
+        if mode == "host":
+            send_state()
         dt = clock.tick(60) / 1000
         await next_frame()
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
