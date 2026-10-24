@@ -10,7 +10,7 @@ Players are randomly assigned as either the attacker or defender and compete to 
 
 ## 🎮 Features
 
-- Two-player local multiplayer
+- Two-player local and multiplayer
 - Random attacker/defender selection
 - Flag capture mechanics
 - Score system
@@ -167,13 +167,13 @@ Potential future updates include:
 
 - Improved graphics and animations
 - Match timer and win conditions
-- Online multiplayer support
 - Better UI and menu
 - Leaderboards and statistics
 
 ## 📝 Updates
 
-- **Oct 2026:** Added browser version via pygodide, fixed blocking waits and frame pacing, and added a non-blocking pause when players score.
+- **23 Oct 2026:** Added browser version via pygodide, fixed blocking waits and frame pacing, and added a non-blocking pause when players score.
+- **24 Oct 2026:** Added multiplayer with expressturn
 
 ---
 
