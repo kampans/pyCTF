@@ -28,6 +28,10 @@ EXTRA_TURN = [{
     "credential": "A1MDT6kfBHj7fYdPxVtMuf+Qhdc=",
 }]
 
+# Diagnostic switch: True = only ever use the TURN relay (never a direct link).
+# If a friend can connect with this on, your relay credentials work.
+FORCE_RELAY = True
+
 GLUE = r"""
 (() => {
   if (globalThis.pyctfNet) return;
@@ -36,7 +40,7 @@ GLUE = r"""
   const PEER_SRC = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
   const PREFIX = "pyctf-";
   const ICE = __ICE__;
-  const PEER_OPTS = { config: { iceServers: ICE } };
+  const PEER_OPTS = { config: { iceServers: ICE, iceTransportPolicy: "__POLICY__" } };
 
   const net = {
     status: "idle",   // idle | loading | waiting | connecting | connected | closed | error
@@ -47,6 +51,8 @@ GLUE = r"""
     conn: null,
     timer: null,
     taken: false,
+    cands: {},        // ICE candidates gathered, by type (host / srflx / relay)
+    errs: [],         // ICE server errors (e.g. bad TURN login)
     ice: "",         // last ICE connection state, for diagnostics
     gen: 0,           // bumped on every start/close so stale callbacks are ignored
 
@@ -56,7 +62,7 @@ GLUE = r"""
       try { if (this.conn) this.conn.close(); } catch (e) {}
       try { if (this.peer) this.peer.destroy(); } catch (e) {}
       this.conn = null; this.peer = null; this.inbox = [];
-      this.code = ""; this.error = ""; this.taken = false; this.ice = ""; this.status = "idle";
+      this.code = ""; this.error = ""; this.taken = false; this.ice = ""; this.cands = {}; this.errs = []; this.status = "idle";
     },
 
     fail(msg) {
@@ -76,15 +82,35 @@ GLUE = r"""
       });
     },
 
+    diag() {
+      const c = this.cands;
+      let s = "ICE " + (this.ice || "none") + " | host " + (c.host || 0) + " srflx " + (c.srflx || 0) + " relay " + (c.relay || 0);
+      if (this.errs.length) s += " | err " + this.errs.join(", ");
+      return s;
+    },
+
     watchIce(conn, g, isGuest) {
       try {
         const pc = conn.peerConnection;
         if (!pc) return;
+        pc.addEventListener("icecandidate", (e) => {
+          if (g !== this.gen || !e.candidate) return;
+          const m = / typ (\w+)/.exec(e.candidate.candidate || "");
+          const t = e.candidate.type || (m ? m[1] : "other");
+          this.cands[t] = (this.cands[t] || 0) + 1;
+        });
+        pc.addEventListener("icecandidateerror", (e) => {
+          if (g !== this.gen) return;
+          console.warn("[pyctf] ICE server error", e.errorCode, e.errorText, e.url);
+          const m = e.errorCode + " " + String(e.url || "").slice(0, 26);
+          if (this.errs.length < 2 && !this.errs.includes(m)) this.errs.push(m);
+        });
         pc.addEventListener("iceconnectionstatechange", () => {
           if (g !== this.gen) return;
           this.ice = pc.iceConnectionState;
+          console.log("[pyctf] ICE state:", this.ice, "|", this.diag());
           if (this.ice === "failed" && this.status !== "connected") {
-            if (isGuest) this.fail("Could not set up a direct connection (ICE failed). A strict network may be blocking it.");
+            if (isGuest) this.fail("Connection failed | " + this.diag());
             else this.taken = false;   // let the friend try again
           }
         });
@@ -143,7 +169,7 @@ GLUE = r"""
       this.status = "loading";
       this.timer = setTimeout(() => {
         if (g === this.gen && this.status !== "connected")
-          this.fail("Timed out (ICE: " + (this.ice || "none") + "). Check the code, or your network may block direct connections.");
+          this.fail("Timed out | " + this.diag());
       }, 20000);
       this.loadLib().then(() => {
         if (g !== this.gen) return;
@@ -184,7 +210,8 @@ class Net:
         if self._api is None:
             js.eval(GLUE.replace("__ALPHABET__", ALPHABET)
                     .replace("__CODE_LEN__", str(CODE_LEN))
-                    .replace("__ICE__", json.dumps(ICE_SERVERS + EXTRA_TURN)))
+                    .replace("__ICE__", json.dumps(ICE_SERVERS + EXTRA_TURN))
+                    .replace("__POLICY__", "relay" if FORCE_RELAY else "all"))
             self._api = js.pyctfNet
         return self._api
 
