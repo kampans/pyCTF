@@ -21,10 +21,9 @@ ICE_SERVERS = [
      "username": "peerjs", "credential": "peerjsp"},
 ]
 EXTRA_TURN = [{
-    "urls": ["turn:relay1.expressturn.com:3478?transport=udp",
-             "turn:relay1.expressturn.com:3478?transport=tcp",
-             "turns:relay1.expressturn.com:443?transport=tcp"],
-    "username": "000000002108216568", # this is a free expressturn account; if you're stealing it you probably need it more than me...
+    "urls": ["turn:free.expressturn.com:3478?transport=udp",
+             "turn:free.expressturn.com:3478?transport=tcp"],
+    "username": "000000002108216568",
     "credential": "A1MDT6kfBHj7fYdPxVtMuf+Qhdc=",
 }]
 
