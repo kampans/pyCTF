@@ -8,6 +8,19 @@ Players are randomly assigned as either the attacker or defender and compete to 
 
 ---
 
+## 📚 Background
+
+This project was originally created in **2024** as part of a **CTYI Early University Entry (EUE)** project associated with **Dublin City University (DCU)**.
+
+The game was developed to explore:
+- Object-oriented programming
+- Physics and collision systems
+- Event-driven game design
+- Multiplayer gameplay mechanics
+- Asset management in Python
+
+---
+
 ## 🎮 Features
 
 - Two-player local and multiplayer
@@ -70,6 +83,8 @@ At the start of each match, one player is randomly selected as the attacker.
 
 - Python
 - Pygame
+- Pygodide
+- Expressturn
 
 ---
 
@@ -86,8 +101,11 @@ Install dependencies:
 
 ```bash
 pip install pygame
-If it doesn't work with pygame, you can use pygame-ce..
-    pip install pygame-ce
+```
+If it doesn't work with pygame, you can use pygame-ce:
+
+```bash
+pip install pygame-ce
 ```
 
 Run the game:
@@ -135,19 +153,6 @@ pygodide build . --dep pygame-ce
 ```
 
 The output is in `build/`. Copy its contents into `docs/` (with an empty `.nojekyll` file) and GitHub Pages serves it from there.
-
----
-
-## 📚 Background
-
-This project was originally created in **2024** as part of a **CTYI Early University Entry (EUE)** project associated with **Dublin City University (DCU)**.
-
-The game was developed to explore:
-- Object-oriented programming
-- Physics and collision systems
-- Event-driven game design
-- Multiplayer gameplay mechanics
-- Asset management in Python
 
 ---
 

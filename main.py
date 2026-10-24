@@ -342,9 +342,7 @@ Flag2_hitbox = MakeCollisionBox(45, 45)
 Flag1.kill()
 Flag2.kill()
 
-# ---------------------------------------------------------------------------
 # ONLINE PLAY: menu, lobby, host/guest helpers
-# ---------------------------------------------------------------------------
 
 _panel_font = None
 
