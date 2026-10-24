@@ -29,7 +29,7 @@ EXTRA_TURN = [{
 
 # Diagnostic switch: True = only ever use the TURN relay (never a direct link).
 # If a friend can connect with this on, your relay credentials work.
-FORCE_RELAY = True
+FORCE_RELAY = False
 
 GLUE = r"""
 (() => {
